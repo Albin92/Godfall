@@ -31,10 +31,10 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Vannu Moneeee  Sync</Text>
+      <Text style={styles.title}>  server Sync</Text>
       
       <View style={styles.card}>
-        <Text style={styles.subtitle}>Backend Status:</Text>
+        <Text style={styles.subtitle}>Backend hehe:</Text>
         <Text style={styles.statusText}>{serverMessage}</Text>
       </View>
 

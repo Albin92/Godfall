@@ -1,13 +1,25 @@
 // backend/server.js
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
+const sosRoutes = require('./routes/sos');
+
 const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Basic Route for testing
+// Database Connection
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log("✅ Connected to MongoDB"))
+    .catch((err) => console.error("❌ MongoDB Connection Error:", err));
+
+// Routes
+app.use('/api/sos', sosRoutes);
+
+// Health Check Route
 app.get('/api/health', (req, res) => {
     res.json({ status: "success", message: "ElderGuard API is running!" });
 });
