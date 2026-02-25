@@ -1,49 +1,52 @@
-// frontend/app/index.js  <-- Make sure it's in this exact file!
 import { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
-const BACKEND_URL = 'http://192.168.137.17:5000';
+const BACKEND_URL = 'http://192.168.137.249:5000';
 
-export default function Index() {
-  const [serverMessage, setServerMessage] = useState("Waiting for server...");
 
-  const pingServer = async () => {
-    setServerMessage("Pinging...");
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/health`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setServerMessage(data.message); 
-      
-    } catch (error) {
-      console.error("Fetch error:", error);
-      setServerMessage("OOOOOOMMMMFFFFFFIIIIII MOONEEEEEEYYYYY");
-    }
-  };
-
-  useEffect(() => {
-    pingServer();
-  }, []);
-
+export default function TabLayout() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Vannu Moneeee  Sync</Text>
-      
-      <View style={styles.card}>
-        <Text style={styles.subtitle}>Backend Status:</Text>
-        <Text style={styles.statusText}>{serverMessage}</Text>
-      </View>
-
-      <TouchableOpacity style={styles.button} onPress={pingServer}>
-        <Text style={styles.buttonText}>Ping Server Again</Text>
-      </TouchableOpacity>
-    </View>
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: '#007AFF',
+        tabBarInactiveTintColor: 'gray',
+        headerShown: false,
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home-outline" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="reminders"
+        options={{
+          title: 'Reminders',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="alarm-outline" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Explore',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="compass-outline" color={color} size={size} />
+          ),
+        }}
+      />
+    </Tabs>
   );
 }
+
+
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F7' },
