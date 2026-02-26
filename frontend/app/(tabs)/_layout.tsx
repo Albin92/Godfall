@@ -1,56 +1,125 @@
-// frontend/app/index.js  <-- Make sure it's in this exact file!
-import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { Tabs } from "expo-router";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 
-const BACKEND_URL = 'http://192.168.137.17:5000';
-
-export default function Index() {
-  const [serverMessage, setServerMessage] = useState("Waiting for server...");
-
-  const pingServer = async () => {
-    setServerMessage("Pinging...");
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/health`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setServerMessage(data.message); 
-      
-    } catch (error) {
-      console.error("Fetch error:", error);
-      setServerMessage("OOOOOOMMMMFFFFFFIIIIII MOONEEEEEEYYYYY");
-    }
-  };
-
-  useEffect(() => {
-    pingServer();
-  }, []);
-
+export default function TabLayout() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Vannu Moneeee  Sync</Text>
-      
-      <View style={styles.card}>
-        <Text style={styles.subtitle}>Backend Status:</Text>
-        <Text style={styles.statusText}>{serverMessage}</Text>
-      </View>
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: styles.tabBar,
+        tabBarShowLabel: false,
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabItem
+              icon={<Ionicons name="home" size={22} />}
+              label="HOME"
+              focused={focused}
+            />
+          ),
+        }}
+      />
 
-      <TouchableOpacity style={styles.button} onPress={pingServer}>
-        <Text style={styles.buttonText}>Ping Server Again</Text>
-      </TouchableOpacity>
+      <Tabs.Screen
+        name="meds"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabItem
+              icon={<Ionicons name="medkit-outline" size={22} />}
+              label="MEDS"
+              focused={focused}
+            />
+          ),
+        }}
+      />
+
+      {/* SOS Placeholder (center button) */}
+      <Tabs.Screen
+        name="sos"
+        options={{
+          tabBarButton: () => (
+            <TouchableOpacity style={styles.sosButton}>
+              <Text style={styles.sosText}>SOS</Text>
+            </TouchableOpacity>
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="vitals"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabItem
+              icon={<Ionicons name="stats-chart" size={22} />}
+              label="VITALS"
+              focused={focused}
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabItem
+              icon={<Ionicons name="person-outline" size={22} />}
+              label="PROFILE"
+              focused={focused}
+            />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}
+
+function TabItem({ icon, label, focused }: any) {
+  return (
+    <View style={styles.tabItem}>
+      <View style={{ opacity: focused ? 1 : 0.5 }}>
+        {icon}
+      </View>
+      <Text style={[styles.tabLabel, { opacity: focused ? 1 : 0.5 }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F7' },
-  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, color: '#333' },
-  card: { backgroundColor: 'white', padding: 20, borderRadius: 15, elevation: 5, marginBottom: 30, width: '80%', alignItems: 'center' },
-  subtitle: { fontSize: 16, color: 'gray', marginBottom: 10 },
-  statusText: { fontSize: 18, fontWeight: '800', color: '#007AFF', textAlign: 'center' },
-  button: { backgroundColor: '#34C759', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 10, elevation: 3 },
-  buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' }
+  tabBar: {
+    height: 70,
+    paddingBottom: 10,
+  },
+  tabItem: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabLabel: {
+    fontSize: 11,
+    marginTop: 2,
+    color: "#fff",
+    
+  },
+  sosButton: {
+    position: "absolute",
+    bottom: 30,
+    alignSelf: "center",
+    width: 90,
+    height: 90,
+    borderRadius: 5schr0,
+    backgroundColor: "#E53935",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
+  },
+  sosText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
 });
