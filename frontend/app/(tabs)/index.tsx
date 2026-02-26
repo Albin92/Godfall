@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, RefreshControl,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import * as Speech from 'expo-speech';
 
 const BACKEND_URL = "http://192.168.137.249:5000";
@@ -42,17 +43,18 @@ const getHRLabel = (hr: string) => {
 };
 
 export default function HomeScreen() {
-  const [now, setNow]             = useState(new Date());
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [taken, setTaken]         = useState<Set<string>>(new Set());
-  const [vitals, setVitals]       = useState<VitalsData>({
+  const [now, setNow]               = useState(new Date());
+  const [reminders, setReminders]   = useState<Reminder[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [taken, setTaken]           = useState<Set<string>>(new Set());
+  const [vitals, setVitals]         = useState<VitalsData>({
     heartRate: null, hrStatus: "—",
     systolic: null, diastolic: null, bpStatus: "—",
   });
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Refs so speakWelcome always sees freshest data
+  // Refs so speakWelcome always reads freshest data
   const remindersRef = useRef<Reminder[]>([]);
   const vitalsRef    = useRef<VitalsData>(vitals);
   const nowRef       = useRef<Date>(new Date());
@@ -70,7 +72,7 @@ export default function HomeScreen() {
   useEffect(() => {
     const init = async () => {
       await Promise.all([fetchReminders(), fetchVitals()]);
-      setTimeout(speakWelcome, 900); // slight delay so state settles
+      setTimeout(speakWelcome, 900);
     };
     init();
     return () => { Speech.stop(); };
@@ -83,7 +85,6 @@ export default function HomeScreen() {
   }, []);
 
   const fetchReminders = async () => {
-    setLoading(true);
     try {
       const res  = await fetch(`${BACKEND_URL}/api/reminders`);
       const json = await res.json();
@@ -92,6 +93,7 @@ export default function HomeScreen() {
       Alert.alert('Error', 'Could not load medicines.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -115,7 +117,31 @@ export default function HomeScreen() {
     } catch { /* silently fail */ }
   };
 
-  // ── Full TalkBack announcement ────────────────────────────────
+  const handleDelete = async (id: string) => {
+    try {
+      const res  = await fetch(`${BACKEND_URL}/api/reminders/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setReminders(prev => prev.filter(item => item._id !== id));
+        speakText('Medicine removed.');
+      }
+    } catch {
+      Alert.alert("Error", "Could not delete medicine.");
+    }
+  };
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchReminders();
+    fetchVitals();
+  }, []);
+
+  // ── TalkBack helpers ──────────────────────────────────────────
+  const speakText = (text: string) => {
+    Speech.stop();
+    Speech.speak(text, { language: 'en-US', rate: 0.85 });
+  };
+
   const speakWelcome = () => {
     Speech.stop();
     const date = nowRef.current;
@@ -128,25 +154,22 @@ export default function HomeScreen() {
 
     let script = `Good day! Today is ${dayName}, ${monthDay}. The current time is ${timeStr}. `;
 
-    // Heart rate
     script += v.heartRate
       ? `Your heart rate is ${v.heartRate} beats per minute. Status: ${v.hrStatus}. `
-      : `No heart rate reading has been recorded yet. `;
+      : `No heart rate reading recorded yet. `;
 
-    // Blood pressure
     script += (v.systolic && v.diastolic)
       ? `Your blood pressure is ${v.systolic} over ${v.diastolic} millimeters of mercury. Status: ${v.bpStatus}. `
-      : `No blood pressure reading has been recorded yet. `;
+      : `No blood pressure reading recorded yet. `;
 
-    // Medicines
     if (meds.length === 0) {
       script += `You have no medicines scheduled for today. `;
     } else {
       script += `You have ${meds.length} medicine${meds.length > 1 ? 's' : ''} scheduled today. `;
       meds.forEach((med, i) => {
-        const parts  = med.dosage.split('/').map((p: string) => p.trim());
-        const pill   = parts[0] || med.dosage;
-        const mg     = parts[1] || '';
+        const parts = med.dosage.split('/').map((p: string) => p.trim());
+        const pill  = parts[0] || med.dosage;
+        const mg    = parts[1] || '';
         script += `Medicine ${i + 1}: ${med.name}. `;
         script += `Take it at ${med.time}. `;
         script += `Dosage: ${pill}${mg ? ', ' + mg : ''}. `;
@@ -154,14 +177,13 @@ export default function HomeScreen() {
       });
       script += `Please take your medicines on time. `;
     }
-
     script += `Stay healthy and have a wonderful day!`;
 
     setIsSpeaking(true);
     Speech.speak(script, {
       language: 'en-US',
       pitch: 1.0,
-      rate: 0.85, // slower pace for elderly users
+      rate: 0.85,
       onDone:  () => setIsSpeaking(false),
       onError: () => setIsSpeaking(false),
     });
@@ -169,208 +191,219 @@ export default function HomeScreen() {
 
   const stopSpeech = () => { Speech.stop(); setIsSpeaking(false); };
 
-  const speakText = (text: string) => {
-    Speech.stop();
-    Speech.speak(text, { language: 'en-US', rate: 0.85 });
-  };
-
   const handleTake = (id: string, name: string) => {
     setTaken((prev) => new Set([...prev, id]));
     speakText(`${name} marked as taken. Well done!`);
     Alert.alert('✅ Done!', `${name} marked as taken.`);
   };
 
-  const formatDate = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const formatTime = (d: Date) => d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const formatDate = (date: Date) =>
+    date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const formatTime = (date: Date) =>
+    date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
   const remaining  = reminders.filter((r) => !taken.has(r._id)).length;
-  const bpIsHigh   = ["HIGH","SLIGHTLY HIGH","ELEVATED"].includes(vitals.bpStatus);
+  const bpIsHigh   = ["HIGH", "SLIGHTLY HIGH", "ELEVATED"].includes(vitals.bpStatus);
   const hrIsNormal = vitals.hrStatus === "NORMAL";
 
+  const renderRightActions = (id: string) => (
+    <TouchableOpacity style={styles.deleteAction} onPress={() => handleDelete(id)}>
+      <Ionicons name="trash" size={24} color="white" />
+      <Text style={styles.deleteActionText}>Delete</Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-
-        {/* Header */}
-        <View style={styles.header}>
-          <Ionicons name="menu" size={24} color="#333" />
-          <Text style={styles.logo}>MediCare+</Text>
-          <Ionicons name="person-circle-outline" size={28} color="#2F6FD6" />
-        </View>
-
-        {/* ── TalkBack Control Bar ─────────────────────────────── */}
-        <View style={styles.talkbackBar}>
-          <View style={styles.talkbackLeft}>
-            <Ionicons name="volume-high-outline" size={22} color="#2F6FD6" />
-            <Text style={styles.talkbackLabel}>
-              {isSpeaking ? "🔊 Speaking..." : "TalkBack"}
-            </Text>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 120 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#2F6FD6"]} />
+          }
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <Ionicons name="menu" size={24} color="#333" />
+            <Text style={styles.logo}>MediCare+</Text>
+            <Ionicons name="person-circle-outline" size={28} color="#2F6FD6" />
           </View>
-          <View style={styles.talkbackBtns}>
-            <TouchableOpacity style={styles.readBtn} onPress={speakWelcome}>
-              <Ionicons name="play-circle" size={16} color="#fff" />
-              <Text style={styles.readBtnText}>Read All</Text>
-            </TouchableOpacity>
-            {isSpeaking && (
-              <TouchableOpacity style={styles.stopBtn} onPress={stopSpeech}>
-                <Ionicons name="stop-circle" size={16} color="#fff" />
-                <Text style={styles.stopBtnText}>Stop</Text>
+
+          {/* ── TalkBack Control Bar ─────────────────────────── */}
+          <View style={styles.talkbackBar}>
+            <View style={styles.talkbackLeft}>
+              <Ionicons name="volume-high-outline" size={22} color="#2F6FD6" />
+              <Text style={styles.talkbackLabel}>
+                {isSpeaking ? "🔊 Speaking..." : "TalkBack"}
+              </Text>
+            </View>
+            <View style={styles.talkbackBtns}>
+              <TouchableOpacity style={styles.readBtn} onPress={speakWelcome}>
+                <Ionicons name="play-circle" size={16} color="#fff" />
+                <Text style={styles.readBtnText}>Read All</Text>
               </TouchableOpacity>
+              {isSpeaking && (
+                <TouchableOpacity style={styles.stopBtn} onPress={stopSpeech}>
+                  <Ionicons name="stop-circle" size={16} color="#fff" />
+                  <Text style={styles.stopBtnText}>Stop</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* ── Live Date & Time (tappable) ─────────────────── */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => speakText(`Today is ${formatDate(now)}. The time is ${formatTime(now)}.`)}
+          >
+            <View style={styles.dateCard}>
+              <Text style={styles.today}>TODAY IS</Text>
+              <Text style={styles.date}>{formatDate(now)}</Text>
+              <Text style={styles.time}>{formatTime(now)}</Text>
+              <Text style={styles.tapHint}>🔊 Tap to hear</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* ── Health Vitals ────────────────────────────────── */}
+          <Text style={styles.sectionTitle}>Health Vitals</Text>
+
+          {/* Heart Rate */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => speakText(
+              vitals.heartRate
+                ? `Your heart rate is ${vitals.heartRate} beats per minute. Status: ${vitals.hrStatus}.`
+                : `No heart rate reading recorded yet.`
             )}
-          </View>
-        </View>
-
-        {/* ── Date & Time Card (tappable) ─────────────────────── */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => speakText(`Today is ${formatDate(now)}. The time is ${formatTime(now)}.`)}
-        >
-          <View style={styles.dateCard}>
-            <Text style={styles.today}>TODAY IS</Text>
-            <Text style={styles.date}>{formatDate(now)}</Text>
-            <Text style={styles.time}>{formatTime(now)}</Text>
-            <Text style={styles.tapHint}>🔊 Tap to hear date & time</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* ── Health Vitals ───────────────────────────────────── */}
-        <Text style={styles.sectionTitle}>Health Vitals</Text>
-
-        {/* Heart Rate */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => speakText(
-            vitals.heartRate
-              ? `Your heart rate is ${vitals.heartRate} beats per minute. Status: ${vitals.hrStatus}.`
-              : `No heart rate reading recorded yet.`
-          )}
-        >
-          <View style={styles.vitalCard}>
-            <View style={[styles.vitalAccent, { backgroundColor: hrIsNormal ? "#1DB954" : "#F4A100" }]} />
-            <View style={styles.vitalContent}>
-              <View style={[styles.iconCircle, { backgroundColor: "#E6F6EC" }]}>
-                <Ionicons name="heart" size={18} color="#1DB954" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.vitalLabel}>Heart Rate</Text>
-                <Text style={styles.vitalValue}>
-                  {vitals.heartRate ?? "—"}{" "}
-                  <Text style={styles.unit}>{vitals.heartRate ? "BPM" : ""}</Text>
-                </Text>
-              </View>
-              <View style={[styles.badge, { backgroundColor: hrIsNormal ? "#E6F6EC" : "#FFF3E0" }]}>
-                <Text style={[styles.badgeText, { color: hrIsNormal ? "#1DB954" : "#F4A100" }]}>
-                  {vitals.hrStatus}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.cardTapHint}>🔊 Tap to hear</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* Blood Pressure */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => speakText(
-            vitals.systolic && vitals.diastolic
-              ? `Your blood pressure is ${vitals.systolic} over ${vitals.diastolic}. Status: ${vitals.bpStatus}.`
-              : `No blood pressure reading recorded yet.`
-          )}
-        >
-          <View style={styles.vitalCard}>
-            <View style={[styles.vitalAccent, { backgroundColor: bpIsHigh ? "#F4A100" : "#1DB954" }]} />
-            <View style={styles.vitalContent}>
-              <View style={[styles.iconCircle, { backgroundColor: "#FFF3E0" }]}>
-                <MaterialCommunityIcons name="heart-pulse" size={18} color="#F4A100" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.vitalLabel}>Blood Pressure</Text>
-                <Text style={styles.vitalValue}>
-                  {vitals.systolic && vitals.diastolic
-                    ? `${vitals.systolic}/${vitals.diastolic}` : "—"}{" "}
-                  <Text style={styles.unit}>{vitals.systolic ? "mmHg" : ""}</Text>
-                </Text>
-              </View>
-              <View style={[styles.badge, { backgroundColor: bpIsHigh ? "#FFF3E0" : "#E6F6EC" }]}>
-                <Text style={[styles.badgeText, { color: bpIsHigh ? "#F4A100" : "#1DB954" }]}>
-                  {vitals.bpStatus}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.cardTapHint}>🔊 Tap to hear</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* ── Today's Medicines ───────────────────────────────── */}
-        <View style={styles.medsHeader}>
-          <Text style={styles.sectionTitle}>Today's Medicines</Text>
-          <View style={styles.remainingBadge}>
-            <Text style={styles.remainingText}>{remaining} Remaining</Text>
-          </View>
-        </View>
-
-        {loading ? (
-          <ActivityIndicator size="large" color="#2F6FD6" style={{ marginTop: 20 }} />
-        ) : reminders.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyEmoji}>💊</Text>
-            <Text style={styles.emptyText}>No medicines added yet.</Text>
-          </View>
-        ) : (
-          reminders.map((item) => {
-            const isTaken = taken.has(item._id);
-            const parts   = item.dosage.split('/').map((p: string) => p.trim());
-            const pill    = parts[0] || item.dosage;
-            const mg      = parts[1] || '';
-            const status  = isTaken ? 'already taken' : 'not yet taken';
-
-            return (
-              <TouchableOpacity
-                key={item._id}
-                activeOpacity={0.85}
-                onPress={() => speakText(
-                  `${item.name}. Take at ${item.time}. Dosage: ${pill}${mg ? ', ' + mg : ''}. ` +
-                  `${item.frequency ? 'Taken ' + item.frequency + '. ' : ''}` +
-                  `Status: ${status}.`
-                )}
-              >
-                <View style={[styles.medicineCard, isTaken && styles.medicineCardTaken]}>
-                  <View style={isTaken ? styles.medIconGrey : styles.medIcon}>
-                    <Ionicons
-                      name={isTaken ? "checkmark-circle-outline" : "medical"}
-                      size={22}
-                      color={isTaken ? "#777" : "#2F6FD6"}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.medName, isTaken && styles.medNameTaken]}>{item.name}</Text>
-                    <Text style={styles.medSub}>⏰ {item.time}  •  {item.dosage}</Text>
-                    {item.frequency ? <Text style={styles.medFreq}>🔁 {item.frequency}</Text> : null}
-                    <Text style={styles.medTapHint}>🔊 Tap to hear details</Text>
-                  </View>
-                  {isTaken ? (
-                    <View style={styles.doneButton}>
-                      <Text style={styles.doneText}>DONE</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.takeButton}
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        handleTake(item._id, item.name);
-                      }}
-                    >
-                      <Text style={styles.takeText}>TAKE</Text>
-                    </TouchableOpacity>
-                  )}
+          >
+            <View style={styles.vitalCard}>
+              <View style={[styles.vitalAccent, { backgroundColor: hrIsNormal ? "#1DB954" : "#F4A100" }]} />
+              <View style={styles.vitalContent}>
+                <View style={[styles.iconCircle, { backgroundColor: "#E6F6EC" }]}>
+                  <Ionicons name="heart" size={18} color="#1DB954" />
                 </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.vitalLabel}>Heart Rate</Text>
+                  <Text style={styles.vitalValue}>
+                    {vitals.heartRate ?? "—"}{" "}
+                    <Text style={styles.unit}>{vitals.heartRate ? "BPM" : ""}</Text>
+                  </Text>
+                </View>
+                <View style={[styles.badge, { backgroundColor: hrIsNormal ? "#E6F6EC" : "#FFF3E0" }]}>
+                  <Text style={[styles.badgeText, { color: hrIsNormal ? "#1DB954" : "#F4A100" }]}>
+                    {vitals.hrStatus}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.cardTapHint}>🔊 Tap to hear</Text>
+            </View>
+          </TouchableOpacity>
 
-      </ScrollView>
-    </View>
+          {/* Blood Pressure */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => speakText(
+              vitals.systolic && vitals.diastolic
+                ? `Your blood pressure is ${vitals.systolic} over ${vitals.diastolic}. Status: ${vitals.bpStatus}.`
+                : `No blood pressure reading recorded yet.`
+            )}
+          >
+            <View style={styles.vitalCard}>
+              <View style={[styles.vitalAccent, { backgroundColor: bpIsHigh ? "#F4A100" : "#1DB954" }]} />
+              <View style={styles.vitalContent}>
+                <View style={[styles.iconCircle, { backgroundColor: "#FFF3E0" }]}>
+                  <MaterialCommunityIcons name="heart-pulse" size={18} color="#F4A100" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.vitalLabel}>Blood Pressure</Text>
+                  <Text style={styles.vitalValue}>
+                    {vitals.systolic && vitals.diastolic
+                      ? `${vitals.systolic}/${vitals.diastolic}` : "—"}{" "}
+                    <Text style={styles.unit}>{vitals.systolic ? "mmHg" : ""}</Text>
+                  </Text>
+                </View>
+                <View style={[styles.badge, { backgroundColor: bpIsHigh ? "#FFF3E0" : "#E6F6EC" }]}>
+                  <Text style={[styles.badgeText, { color: bpIsHigh ? "#F4A100" : "#1DB954" }]}>
+                    {vitals.bpStatus}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.cardTapHint}>🔊 Tap to hear</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* ── Today's Medicines ────────────────────────────── */}
+          <View style={styles.medsHeader}>
+            <Text style={styles.sectionTitle}>Today's Medicines</Text>
+            <View style={styles.remainingBadge}>
+              <Text style={styles.remainingText}>{remaining} Remaining</Text>
+            </View>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#2F6FD6" style={{ marginTop: 20 }} />
+          ) : reminders.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>💊</Text>
+              <Text style={styles.emptyText}>No medicines added yet.</Text>
+            </View>
+          ) : (
+            reminders.map((item) => {
+              const isTaken = taken.has(item._id);
+              const parts   = item.dosage.split('/').map((p: string) => p.trim());
+              const pill    = parts[0] || item.dosage;
+              const mg      = parts[1] || '';
+              const status  = isTaken ? 'already taken' : 'not yet taken';
+
+              return (
+                <Swipeable key={item._id} renderRightActions={() => renderRightActions(item._id)}>
+                  {/* Tap card to hear details */}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onPress={() => speakText(
+                      `${item.name}. Take at ${item.time}. Dosage: ${pill}${mg ? ', ' + mg : ''}. ` +
+                      `${item.frequency ? 'Taken ' + item.frequency + '. ' : ''}` +
+                      `Status: ${status}.`
+                    )}
+                  >
+                    <View style={[styles.medicineCard, isTaken && styles.medicineCardTaken]}>
+                      <View style={isTaken ? styles.medIconGrey : styles.medIcon}>
+                        <Ionicons
+                          name={isTaken ? "checkmark-circle-outline" : "medical"}
+                          size={22}
+                          color={isTaken ? "#777" : "#2F6FD6"}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.medName, isTaken && styles.medNameTaken]}>{item.name}</Text>
+                        <Text style={styles.medSub}>⏰ {item.time}  •  {item.dosage}</Text>
+                        {item.frequency ? <Text style={styles.medFreq}>🔁 {item.frequency}</Text> : null}
+                        <Text style={styles.medTapHint}>🔊 Tap to hear • Swipe left to delete</Text>
+                      </View>
+                      {isTaken ? (
+                        <View style={styles.doneButton}>
+                          <Text style={styles.doneText}>DONE</Text>
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.takeButton}
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            handleTake(item._id, item.name);
+                          }}
+                        >
+                          <Text style={styles.takeText}>TAKE</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                </Swipeable>
+              );
+            })
+          )}
+        </ScrollView>
+      </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -380,7 +413,7 @@ const styles = StyleSheet.create({
   logo:         { fontSize: 18, fontWeight: "600" },
 
   // TalkBack bar
-  talkbackBar:  {
+  talkbackBar: {
     marginHorizontal: 20, marginBottom: 16,
     backgroundColor: "#EEF4FF", borderRadius: 14,
     padding: 14, flexDirection: "row",
@@ -401,7 +434,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#E53935", paddingHorizontal: 14,
     paddingVertical: 8, borderRadius: 20,
   },
-  stopBtnText:  { color: "#fff", fontWeight: "700", fontSize: 13 },
+  stopBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
 
   // Date card
   dateCard:  { backgroundColor: "#fff", marginHorizontal: 20, borderRadius: 16, padding: 20, alignItems: "center", marginBottom: 20 },
@@ -410,9 +443,9 @@ const styles = StyleSheet.create({
   time:      { fontSize: 28, fontWeight: "700", color: "#2F6FD6" },
   tapHint:   { fontSize: 11, color: "#aaa", marginTop: 6 },
 
-  sectionTitle: { fontSize: 18, fontWeight: "700", marginHorizontal: 20, marginBottom: 12 },
+  sectionTitle:  { fontSize: 18, fontWeight: "700", marginHorizontal: 20, marginBottom: 12 },
 
-  // Vital cards
+  // Vitals
   vitalCard:    { backgroundColor: "#fff", marginHorizontal: 20, borderRadius: 16, marginBottom: 15, overflow: "hidden" },
   vitalAccent:  { position: "absolute", left: 0, top: 0, bottom: 0, width: 6 },
   vitalContent: { flexDirection: "row", alignItems: "center", padding: 16 },
@@ -444,4 +477,17 @@ const styles = StyleSheet.create({
   emptyCard:         { alignItems: "center", marginTop: 20, paddingVertical: 30 },
   emptyEmoji:        { fontSize: 40, marginBottom: 8 },
   emptyText:         { color: "#aaa", fontSize: 14 },
+
+  // Swipe delete
+  deleteAction: {
+    backgroundColor: '#E53935',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '80%',
+    marginVertical: 12,
+    borderRadius: 16,
+    marginRight: 20,
+  },
+  deleteActionText: { color: 'white', fontWeight: '600', fontSize: 12, marginTop: 4 },
 });
