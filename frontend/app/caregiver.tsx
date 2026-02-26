@@ -87,15 +87,7 @@ export default function CaregiverScreen() {
         </Text>
       </View>
 
-      {/* Invite Card */}
-      <View style={styles.inviteCard}>
-        <Text style={styles.inviteTitle}>Add Another Caregiver</Text>
-        <Text style={styles.inviteCode}>HLTH - 92X1</Text>
-        <TouchableOpacity style={styles.copyBtn}>
-          <Text style={{ color: "#fff" }}>Copy</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+       </ScrollView>
   );
 }
 

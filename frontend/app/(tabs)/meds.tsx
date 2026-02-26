@@ -14,7 +14,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
 
 // ⚠️ Double check this is your exact current IP!
-const BACKEND_URL = "http://192.168.137.249:5000"; 
+const BACKEND_URL = "http://192.168.137.17:5000"; 
 
 export default function MedsScreen() {
   const router = useRouter();
