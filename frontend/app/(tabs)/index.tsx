@@ -1,98 +1,128 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, Alert } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const BACKEND_URL = 'http://192.168.137.17:5000'; // Change to your current IP if needed
 
-export default function HomeScreen() {
+export default function Index() {
+  const [serverMessage, setServerMessage] = useState("Waiting for server...");
+
+  const pingServer = async () => {
+    setServerMessage("Pinging...");
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/health`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setServerMessage(data.message); 
+      
+    } catch (error) {
+      console.error("Fetch error:", error);
+      setServerMessage("Cannot connect to backend");
+    }
+  };
+
+  useEffect(() => {
+    pingServer();
+  }, []);
+
+  // --- SOS Trigger Logic ---
+  const handleSOSTrigger = () => {
+    Alert.alert(
+      "Emergency SOS",
+      "Are you sure you want to trigger the SOS alert?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "SEND SOS", 
+          style: "destructive",
+          onPress: sendSOSRequest 
+        }
+      ]
+    );
+  };
+
+  const sendSOSRequest = async () => {
+    try {
+      // ⚠️ REPLACE +91YOUR_REAL_NUMBER with the one you verified in Twilio!
+      const response = await fetch(`${BACKEND_URL}/api/sos/trigger`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: "user_123",
+          userName: "Abdul Basith K A", 
+          location: { latitude: 13.0827, longitude: 80.2707 },
+          contactNumber: "+91YOUR_REAL_NUMBER" 
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        Alert.alert("SOS Sent!", "Emergency contacts are being called.");
+      } else {
+        Alert.alert("Error", "Could not send SOS.");
+      }
+    } catch (error) {
+      console.error("SOS Fetch Error:", error);
+      Alert.alert("Network Error", "Could not reach the server.");
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={styles.container}>
+      <Text style={styles.title}>Server Sync</Text>
+      
+      <View style={styles.card}>
+        <Text style={styles.subtitle}>Backend Connection:</Text>
+        <Text style={styles.statusText}>{serverMessage}</Text>
+      </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <TouchableOpacity style={styles.button} onPress={pingServer}>
+        <Text style={styles.buttonText}>Ping Server Again</Text>
+      </TouchableOpacity>
+
+      {/* --- Big Red SOS Button --- */}
+      <TouchableOpacity style={styles.sosButton} onPress={handleSOSTrigger}>
+        <Text style={styles.sosButtonText}>SOS EMERGENCY</Text>
+      </TouchableOpacity>
+      
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F7' },
+  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, color: '#333' },
+  card: { backgroundColor: 'white', padding: 20, borderRadius: 15, elevation: 5, marginBottom: 30, width: '80%', alignItems: 'center' },
+  subtitle: { fontSize: 16, color: 'gray', marginBottom: 10 },
+  statusText: { fontSize: 18, fontWeight: '800', color: '#007AFF', textAlign: 'center' },
+  button: { backgroundColor: '#34C759', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 10, elevation: 3, marginBottom: 40 },
+  buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  
+  sosButton: {
+    backgroundColor: '#E63946',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    elevation: 10,
+    shadowColor: '#E63946',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    borderWidth: 5,
+    borderColor: '#FCA5A5'
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+  sosButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center'
+  }
 });
