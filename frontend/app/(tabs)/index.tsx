@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
+import React, { useState, useEffect, useCallback } from 'react';
+import { 
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, 
+  ActivityIndicator, Alert, RefreshControl 
+} from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+// 1. Import Gesture Handler components
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 
 const BACKEND_URL = "http://192.168.137.249:5000";
 
@@ -32,9 +37,9 @@ const getBPLabel = (sys: string, dia: string) => {
 
 const getHRLabel = (hr: string) => {
   const n = parseInt(hr);
-  if (isNaN(n))            return "—";
+  if (isNaN(n))             return "—";
   if (n >= 60 && n <= 100) return "NORMAL";
-  if (n < 60)              return "LOW";
+  if (n < 60)               return "LOW";
   return "HIGH";
 };
 
@@ -42,6 +47,7 @@ export default function HomeScreen() {
   const [now, setNow]           = useState(new Date());
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [refreshing, setRefreshing] = useState(false); // 2. Pull-to-refresh state
   const [taken, setTaken]       = useState<Set<string>>(new Set());
   const [vitals, setVitals]     = useState<VitalsData>({
     heartRate: null, hrStatus: "—",
@@ -67,7 +73,6 @@ export default function HomeScreen() {
   }, []);
 
   const fetchReminders = async () => {
-    setLoading(true);
     try {
       const res  = await fetch(`${BACKEND_URL}/api/reminders`);
       const json = await res.json();
@@ -76,6 +81,7 @@ export default function HomeScreen() {
       Alert.alert('Error', 'Could not load medicines.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -96,10 +102,28 @@ export default function HomeScreen() {
           bpStatus:  sys && dia ? getBPLabel(sys, dia) : "—",
         });
       }
+    } catch { /* silently fail */ }
+  };
+
+  // 3. Delete functionality
+  const handleDelete = async (id: string) => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/reminders/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (json.status === 'success') {
+        setReminders(prev => prev.filter(item => item._id !== id));
+      }
     } catch {
-      // silently fail — vitals will show defaults
+      Alert.alert("Error", "Could not delete medicine.");
     }
   };
+
+  // 4. Refresh Handler
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchReminders();
+    fetchVitals();
+  }, []);
 
   const handleTake = (id: string, name: string) => {
     setTaken((prev) => new Set([...prev, id]));
@@ -113,131 +137,149 @@ export default function HomeScreen() {
 
   const remaining = reminders.filter((r) => !taken.has(r._id)).length;
 
-  // ── BP badge color based on status ──────────────────────────
   const bpIsHigh = vitals.bpStatus === "HIGH" || vitals.bpStatus === "SLIGHTLY HIGH" || vitals.bpStatus === "ELEVATED";
   const hrIsNormal = vitals.hrStatus === "NORMAL";
 
+  // 5. Swipe Action UI
+  const renderRightActions = (id: string) => (
+    <TouchableOpacity style={styles.deleteAction} onPress={() => handleDelete(id)}>
+      <Ionicons name="trash" size={24} color="white" />
+      <Text style={styles.deleteActionText}>Delete</Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
+    // 6. Wrap in GestureHandlerRootView
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <View style={styles.container}>
+        <ScrollView 
+          contentContainerStyle={{ paddingBottom: 120 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#2F6FD6"]} />
+          }
+        >
 
-        {/* Header */}
-        <View style={styles.header}>
-          <Ionicons name="menu" size={24} color="#333" />
-          <Text style={styles.logo}>MediCare+</Text>
-          <Ionicons name="person-circle-outline" size={28} color="#2F6FD6" />
-        </View>
-
-        {/* Live Date & Time */}
-        <View style={styles.dateCard}>
-          <Text style={styles.today}>TODAY IS</Text>
-          <Text style={styles.date}>{formatDate(now)}</Text>
-          <Text style={styles.time}>{formatTime(now)}</Text>
-        </View>
-
-        {/* Health Vitals */}
-        <Text style={styles.sectionTitle}>Health Vitals</Text>
-
-        {/* Heart Rate — live from DB */}
-        <View style={styles.vitalCard}>
-          <View style={[styles.vitalAccent, { backgroundColor: hrIsNormal ? "#1DB954" : "#F4A100" }]} />
-          <View style={styles.vitalContent}>
-            <View style={[styles.iconCircle, { backgroundColor: "#E6F6EC" }]}>
-              <Ionicons name="heart" size={18} color="#1DB954" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.vitalLabel}>Heart Rate</Text>
-              <Text style={styles.vitalValue}>
-                {vitals.heartRate ?? "—"}{" "}
-                <Text style={styles.unit}>{vitals.heartRate ? "BPM" : ""}</Text>
-              </Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: hrIsNormal ? "#E6F6EC" : "#FFF3E0" }]}>
-              <Text style={[styles.badgeText, { color: hrIsNormal ? "#1DB954" : "#F4A100" }]}>
-                {vitals.hrStatus}
-              </Text>
-            </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <Ionicons name="menu" size={24} color="#333" />
+            <Text style={styles.logo}>MediCare+</Text>
+            <Ionicons name="person-circle-outline" size={28} color="#2F6FD6" />
           </View>
-        </View>
 
-        {/* Blood Pressure — live from DB */}
-        <View style={styles.vitalCard}>
-          <View style={[styles.vitalAccent, { backgroundColor: bpIsHigh ? "#F4A100" : "#1DB954" }]} />
-          <View style={styles.vitalContent}>
-            <View style={[styles.iconCircle, { backgroundColor: "#FFF3E0" }]}>
-              <MaterialCommunityIcons name="heart-pulse" size={18} color="#F4A100" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.vitalLabel}>Blood Pressure</Text>
-              <Text style={styles.vitalValue}>
-                {vitals.systolic && vitals.diastolic
-                  ? `${vitals.systolic}/${vitals.diastolic}`
-                  : "—"}{" "}
-                <Text style={styles.unit}>
-                  {vitals.systolic ? "mmHg" : ""}
-                </Text>
-              </Text>
-            </View>
-            <View style={[styles.badge, { backgroundColor: bpIsHigh ? "#FFF3E0" : "#E6F6EC" }]}>
-              <Text style={[styles.badgeText, { color: bpIsHigh ? "#F4A100" : "#1DB954" }]}>
-                {vitals.bpStatus}
-              </Text>
-            </View>
+          {/* Live Date & Time */}
+          <View style={styles.dateCard}>
+            <Text style={styles.today}>TODAY IS</Text>
+            <Text style={styles.date}>{formatDate(now)}</Text>
+            <Text style={styles.time}>{formatTime(now)}</Text>
           </View>
-        </View>
 
-        {/* Today's Medicines */}
-        <View style={styles.medsHeader}>
-          <Text style={styles.sectionTitle}>Today's Medicines</Text>
-          <View style={styles.remainingBadge}>
-            <Text style={styles.remainingText}>{remaining} Remaining</Text>
-          </View>
-        </View>
+          {/* Health Vitals */}
+          <Text style={styles.sectionTitle}>Health Vitals</Text>
 
-        {loading ? (
-          <ActivityIndicator size="large" color="#2F6FD6" style={{ marginTop: 20 }} />
-        ) : reminders.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyEmoji}>💊</Text>
-            <Text style={styles.emptyText}>No medicines added yet.</Text>
-          </View>
-        ) : (
-          reminders.map((item) => {
-            const isTaken = taken.has(item._id);
-            return (
-              <View key={item._id} style={[styles.medicineCard, isTaken && styles.medicineCardTaken]}>
-                <View style={isTaken ? styles.medIconGrey : styles.medIcon}>
-                  <Ionicons
-                    name={isTaken ? "checkmark-circle-outline" : "medical"}
-                    size={22}
-                    color={isTaken ? "#777" : "#2F6FD6"}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.medName, isTaken && styles.medNameTaken]}>{item.name}</Text>
-                  <Text style={styles.medSub}>⏰ {item.time}  •  {item.dosage}</Text>
-                  {item.frequency ? <Text style={styles.medFreq}>🔁 {item.frequency}</Text> : null}
-                </View>
-                {isTaken ? (
-                  <View style={styles.doneButton}>
-                    <Text style={styles.doneText}>DONE</Text>
-                  </View>
-                ) : (
-                  <TouchableOpacity style={styles.takeButton} onPress={() => handleTake(item._id, item.name)}>
-                    <Text style={styles.takeText}>TAKE</Text>
-                  </TouchableOpacity>
-                )}
+          {/* Heart Rate */}
+          <View style={styles.vitalCard}>
+            <View style={[styles.vitalAccent, { backgroundColor: hrIsNormal ? "#1DB954" : "#F4A100" }]} />
+            <View style={styles.vitalContent}>
+              <View style={[styles.iconCircle, { backgroundColor: "#E6F6EC" }]}>
+                <Ionicons name="heart" size={18} color="#1DB954" />
               </View>
-            );
-          })
-        )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.vitalLabel}>Heart Rate</Text>
+                <Text style={styles.vitalValue}>
+                  {vitals.heartRate ?? "—"}{" "}
+                  <Text style={styles.unit}>{vitals.heartRate ? "BPM" : ""}</Text>
+                </Text>
+              </View>
+              <View style={[styles.badge, { backgroundColor: hrIsNormal ? "#E6F6EC" : "#FFF3E0" }]}>
+                <Text style={[styles.badgeText, { color: hrIsNormal ? "#1DB954" : "#F4A100" }]}>
+                  {vitals.hrStatus}
+                </Text>
+              </View>
+            </View>
+          </View>
 
-      </ScrollView>
-    </View>
+          {/* Blood Pressure */}
+          <View style={styles.vitalCard}>
+            <View style={[styles.vitalAccent, { backgroundColor: bpIsHigh ? "#F4A100" : "#1DB954" }]} />
+            <View style={styles.vitalContent}>
+              <View style={[styles.iconCircle, { backgroundColor: "#FFF3E0" }]}>
+                <MaterialCommunityIcons name="heart-pulse" size={18} color="#F4A100" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.vitalLabel}>Blood Pressure</Text>
+                <Text style={styles.vitalValue}>
+                  {vitals.systolic && vitals.diastolic
+                    ? `${vitals.systolic}/${vitals.diastolic}`
+                    : "—"}{" "}
+                  <Text style={styles.unit}>
+                    {vitals.systolic ? "mmHg" : ""}
+                  </Text>
+                </Text>
+              </View>
+              <View style={[styles.badge, { backgroundColor: bpIsHigh ? "#FFF3E0" : "#E6F6EC" }]}>
+                <Text style={[styles.badgeText, { color: bpIsHigh ? "#F4A100" : "#1DB954" }]}>
+                  {vitals.bpStatus}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Today's Medicines */}
+          <View style={styles.medsHeader}>
+            <Text style={styles.sectionTitle}>Today's Medicines</Text>
+            <View style={styles.remainingBadge}>
+              <Text style={styles.remainingText}>{remaining} Remaining</Text>
+            </View>
+          </View>
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#2F6FD6" style={{ marginTop: 20 }} />
+          ) : reminders.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyEmoji}>💊</Text>
+              <Text style={styles.emptyText}>No medicines added yet.</Text>
+            </View>
+          ) : (
+            reminders.map((item) => {
+              const isTaken = taken.has(item._id);
+              return (
+                // 7. Wrap items in Swipeable
+                <Swipeable key={item._id} renderRightActions={() => renderRightActions(item._id)}>
+                  <View style={[styles.medicineCard, isTaken && styles.medicineCardTaken]}>
+                    <View style={isTaken ? styles.medIconGrey : styles.medIcon}>
+                      <Ionicons
+                        name={isTaken ? "checkmark-circle-outline" : "medical"}
+                        size={22}
+                        color={isTaken ? "#777" : "#2F6FD6"}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.medName, isTaken && styles.medNameTaken]}>{item.name}</Text>
+                      <Text style={styles.medSub}>⏰ {item.time}  •  {item.dosage}</Text>
+                      {item.frequency ? <Text style={styles.medFreq}>🔁 {item.frequency}</Text> : null}
+                    </View>
+                    {isTaken ? (
+                      <View style={styles.doneButton}>
+                        <Text style={styles.doneText}>DONE</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={styles.takeButton} onPress={() => handleTake(item._id, item.name)}>
+                        <Text style={styles.takeText}>TAKE</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </Swipeable>
+              );
+            })
+          )}
+        </ScrollView>
+      </View>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  // ... your existing styles ...
   container:  { flex: 1, backgroundColor: "#F5F7FA" },
   header:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20 },
   logo:       { fontSize: 18, fontWeight: "600" },
@@ -260,12 +302,12 @@ const styles = StyleSheet.create({
   remainingText:  { color: "#2F6FD6", fontSize: 12, fontWeight: "600" },
   medicineCard:   { backgroundColor: "#fff", marginHorizontal: 20, borderRadius: 16, padding: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", elevation: 2, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
   medicineCardTaken: { opacity: 0.55 },
-  medIcon:     { backgroundColor: "#E6F0FF", padding: 12, borderRadius: 16, marginRight: 12 },
+  medIcon:      { backgroundColor: "#E6F0FF", padding: 12, borderRadius: 16, marginRight: 12 },
   medIconGrey: { backgroundColor: "#F0F0F0", padding: 12, borderRadius: 16, marginRight: 12 },
-  medName:     { fontSize: 16, fontWeight: "600" },
+  medName:      { fontSize: 16, fontWeight: "600" },
   medNameTaken: { textDecorationLine: "line-through", color: "#999" },
   medSub:      { fontSize: 12, color: "#666", marginTop: 2 },
-  medFreq:     { fontSize: 11, color: "#aaa", marginTop: 2 },
+  medFreq:      { fontSize: 11, color: "#aaa", marginTop: 2 },
   takeButton:  { backgroundColor: "#2F6FD6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20 },
   takeText:    { color: "#fff", fontWeight: "600" },
   doneButton:  { backgroundColor: "#E6F6EC", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
@@ -273,4 +315,22 @@ const styles = StyleSheet.create({
   emptyCard:   { alignItems: "center", marginTop: 20, paddingVertical: 30 },
   emptyEmoji:  { fontSize: 40, marginBottom: 8 },
   emptyText:   { color: "#aaa", fontSize: 14 },
+
+  // 8. New Swipe Styles
+  deleteAction: {
+    backgroundColor: '#E53935',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '80%', // Slightly smaller than card for better look
+    marginVertical: 12, // Match medicineCard marginBottom
+    borderRadius: 16,
+    marginRight: 20,
+  },
+  deleteActionText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 12,
+    marginTop: 4,
+  },
 });
