@@ -79,6 +79,96 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────
+// ADD THIS to your server.js (alongside your existing reminders code)
+// ─────────────────────────────────────────────────────────────
+
+// ── 1. Vital Schema & Model ───────────────────────────────────
+const vitalSchema = new mongoose.Schema({
+  type:        { type: String, required: true }, // "Blood Pressure", "Heart Rate", "SpO2", "Blood Sugar"
+  systolic:    { type: String },   // Blood Pressure only
+  diastolic:   { type: String },   // Blood Pressure only
+  heartRate:   { type: String },   // Heart Rate only
+  spo2:        { type: String },   // SpO2 only
+  sugar:       { type: String },   // Blood Sugar only
+  recordedAt:  { type: Date, default: Date.now },
+});
+
+const Vital = mongoose.model('Vital', vitalSchema);
+
+
+// ── 2. POST /api/vitals — Save a vital reading ────────────────
+app.post('/api/vitals', async (req, res) => {
+  try {
+    const vital = new Vital(req.body);
+    await vital.save();
+    res.json({ status: 'success', data: vital });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+
+// ── 3. GET /api/vitals — Get all vitals (optional, for history) ──
+app.get('/api/vitals', async (req, res) => {
+  try {
+    const vitals = await Vital.find().sort({ recordedAt: -1 });
+    res.json({ status: 'success', data: vitals });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+
+// ── 4. GET /api/vitals/latest — Get latest reading per type ──
+app.get('/api/vitals/latest', async (req, res) => {
+  try {
+    const types = ['Blood Pressure', 'Heart Rate', 'SpO2', 'Blood Sugar'];
+    const results = await Promise.all(
+      types.map(type => Vital.findOne({ type }).sort({ recordedAt: -1 }))
+    );
+    const latest = {};
+    types.forEach((t, i) => { if (results[i]) latest[t] = results[i]; });
+    res.json({ status: 'success', data: latest });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// ADD THIS to your server.js vitals section
+// This route deletes ALL records of a specific vital type
+// so the database always holds only the latest reading per type
+// ─────────────────────────────────────────────────────────────
+
+// DELETE /api/vitals/type/:type  — wipe all records of this type
+app.delete('/api/vitals/type/:type', async (req, res) => {
+  try {
+    const result = await Vital.deleteMany({ type: req.params.type });
+    res.json({ status: 'success', deleted: result.deletedCount });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// MAKE SURE you also have this route (from previous snippet):
+// GET /api/vitals/latest  — returns latest record per vital type
+// ─────────────────────────────────────────────────────────────
+app.get('/api/vitals/latest', async (req, res) => {
+  try {
+    const types = ['Blood Pressure', 'Heart Rate', 'SpO2', 'Blood Sugar'];
+    const results = await Promise.all(
+      types.map(type => Vital.findOne({ type }).sort({ recordedAt: -1 }))
+    );
+    const latest = {};
+    types.forEach((t, i) => { if (results[i]) latest[t] = results[i]; });
+    res.json({ status: 'success', data: latest });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 // Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
