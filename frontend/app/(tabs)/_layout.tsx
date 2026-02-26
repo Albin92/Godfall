@@ -1,56 +1,184 @@
-// frontend/app/index.js  <-- Make sure it's in this exact file!
-import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { Tabs } from "expo-router";
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import * as Speech from 'expo-speech';
 
-const BACKEND_URL = 'http://192.168.137.17:5000';
+// ⚠️ Hackathon check: Ensure this IP is still correct for your current Wi-Fi!
+const BACKEND_URL = 'http://192.168.137.17:5000'; 
 
-export default function Index() {
-  const [serverMessage, setServerMessage] = useState("Waiting for server...");
+export default function TabLayout() {
 
-  const pingServer = async () => {
-    setServerMessage("Pinging...");
+  // --- SOS Trigger Logic ---
+  const handleSOSTrigger = () => {
+    Alert.alert(
+      "Emergency SOS",
+      "Are you sure you want to trigger the SOS alert?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "SEND SOS", 
+          style: "destructive",
+          onPress: sendSOSRequest 
+        }
+      ]
+    );
+  };
+
+  const sendSOSRequest = async () => {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/health`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
+      // ⚠️ REPLACE +91YOUR_REAL_NUMBER with the one you verified in Twilio!
+      const response = await fetch(`${BACKEND_URL}/api/sos/trigger`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: "user_123",
+          userName: "Abdul Basith K A", 
+          location: { latitude: 13.0827, longitude: 80.2707 }, // Hardcoded for demo
+          contactNumber: "+916362434977" 
+        }),
+      });
+
       const data = await response.json();
-      setServerMessage(data.message); 
       
+      if (data.success) {
+        Alert.alert("SOS Sent!", "Emergency contacts are being called.");
+        
+        // --- TEXT TO SPEECH (SUCCESS) ---
+        Speech.speak("Emergency SOS activated. Contacts are being notified. Please remain calm.", {
+          language: 'en',
+          pitch: 1,
+          rate: 0.85 // Slightly slower so it sounds clear and calming
+        });
+
+      } else {
+        Alert.alert("Error", "Could not send SOS.");
+        
+        // --- TEXT TO SPEECH (FAIL) ---
+        Speech.speak("Failed to send SOS. Please try again.", {
+            language: 'en',
+            pitch: 1,
+            rate: 0.9 
+        });
+      }
     } catch (error) {
-      console.error("Fetch error:", error);
-      setServerMessage("OOOOOOMMMMFFFFFFIIIIII MOONEEEEEEYYYYY");
+      console.error("SOS Fetch Error:", error);
+      Alert.alert("Network Error", "Could not reach the server.");
+      
+      // --- TEXT TO SPEECH (NETWORK ERROR) ---
+      Speech.speak("Network error. Could not reach the server.", {
+        language: 'en',
+        pitch: 1,
+        rate: 0.9 
+      });
     }
   };
 
-  useEffect(() => {
-    pingServer();
-  }, []);
-
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Vannu Moneeee  Sync</Text>
-      
-      <View style={styles.card}>
-        <Text style={styles.subtitle}>Backend Status:</Text>
-        <Text style={styles.statusText}>{serverMessage}</Text>
-      </View>
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: styles.tabBar,
+        tabBarShowLabel: true, 
+        tabBarActiveTintColor: "#007AFF", 
+        tabBarInactiveTintColor: "#8E8E93", 
+        tabBarLabelStyle: styles.tabLabel,
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "HOME",
+          tabBarIcon: ({ color }) => <Ionicons name="home" size={24} color={color} />,
+        }}
+      />
 
-      <TouchableOpacity style={styles.button} onPress={pingServer}>
-        <Text style={styles.buttonText}>Ping Server Again</Text>
-      </TouchableOpacity>
-    </View>
+      <Tabs.Screen
+        name="meds"
+        options={{
+          title: "MEDS",
+          tabBarIcon: ({ color }) => <Ionicons name="medkit" size={24} color={color} />,
+        }}
+      />
+
+      {/* --- Centered Live SOS Button --- */}
+      <Tabs.Screen
+        name="sos"
+        options={{
+          title: "", // No text under the center button
+          tabBarButton: () => (
+            <View style={styles.sosWrapper}>
+              <TouchableOpacity style={styles.sosButton} onPress={handleSOSTrigger}>
+                <Text style={styles.sosText}>SOS</Text>
+                <Text style={styles.sosSubText}>EMERGENCY</Text>
+              </TouchableOpacity>
+            </View>
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="vitals"
+        options={{
+          title: "VITALS",
+          tabBarIcon: ({ color }) => <Ionicons name="stats-chart" size={24} color={color} />,
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "PROFILE",
+          tabBarIcon: ({ color }) => <Ionicons name="person" size={24} color={color} />,
+        }}
+      />
+    </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F2F2F7' },
-  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 20, color: '#333' },
-  card: { backgroundColor: 'white', padding: 20, borderRadius: 15, elevation: 5, marginBottom: 30, width: '80%', alignItems: 'center' },
-  subtitle: { fontSize: 16, color: 'gray', marginBottom: 10 },
-  statusText: { fontSize: 18, fontWeight: '800', color: '#007AFF', textAlign: 'center' },
-  button: { backgroundColor: '#34C759', paddingVertical: 15, paddingHorizontal: 30, borderRadius: 10, elevation: 3 },
-  buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' }
+  tabBar: {
+    height: 70,
+    paddingBottom: 10,
+    paddingTop: 10,
+    backgroundColor: "white",
+    elevation: 10, 
+    borderTopWidth: 0,
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  sosWrapper: {
+    flex: 1, 
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  sosButton: {
+    top: -25, 
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#E63946",
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 8,
+    shadowColor: "#E63946",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    borderWidth: 4,
+    borderColor: "#FCA5A5", 
+  },
+  sosText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  sosSubText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "bold",
+  }
 });
